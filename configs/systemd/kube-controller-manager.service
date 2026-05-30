@@ -1,0 +1,64 @@
+# =============================================================================
+# kube-controller-manager systemd unit file
+# =============================================================================
+# Manages the Kubernetes Controller Manager as a systemd service.
+#
+# The controller manager runs the core control loops that regulate the state
+# of the cluster. It includes controllers for:
+#   - Node controller: monitors node health and evicts pods from unhealthy nodes
+#   - Replication controller: maintains the correct number of pod replicas
+#   - Endpoints controller: populates Endpoints objects for Services
+#   - Service Account controller: creates default ServiceAccounts in new namespaces
+#   - Deployment controller: manages rollouts and rollbacks
+#   - Job controller: manages batch workloads
+#
+# Certificate paths:
+#   /etc/kubernetes/pki/ca.pem                     - Cluster CA certificate
+#   /etc/kubernetes/pki/ca-key.pem                 - Cluster CA key (for CSR signing)
+#   /etc/kubernetes/pki/service-account-key.pem    - Service account signing key
+#   /var/lib/kubernetes/kubeconfig-controller-manager.yaml - Kubeconfig for API auth
+#
+# Placeholder variables:
+#   None required - the controller manager connects to the API server via
+#   kubeconfig and binds to 0.0.0.0 for health checks.
+#
+# Installation:
+#   1. Ensure kubeconfig-controller-manager.yaml is in /var/lib/kubernetes/
+#   2. Copy to /etc/systemd/system/kube-controller-manager.service
+#   3. Run: sudo systemctl daemon-reload
+#   4. Run: sudo systemctl enable --now kube-controller-manager
+#
+# Requirements: 5.3
+# =============================================================================
+
+[Unit]
+Description=Kubernetes Controller Manager
+Documentation=https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/
+After=network.target
+After=kube-apiserver.service
+Requires=kube-apiserver.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kube-controller-manager \
+  --allocate-node-cidrs=true \
+  --bind-address=0.0.0.0 \
+  --cluster-cidr=10.244.0.0/16 \
+  --cluster-name=k8s-lab \
+  --cluster-signing-cert-file=/etc/kubernetes/pki/ca.pem \
+  --cluster-signing-key-file=/etc/kubernetes/pki/ca-key.pem \
+  --controllers=*,bootstrapsigner,tokencleaner \
+  --kubeconfig=/var/lib/kubernetes/kubeconfig-controller-manager.yaml \
+  --leader-elect=true \
+  --root-ca-file=/etc/kubernetes/pki/ca.pem \
+  --service-account-private-key-file=/etc/kubernetes/pki/service-account-key.pem \
+  --service-cluster-ip-range=10.96.0.0/12 \
+  --use-service-account-credentials=true \
+  --v=2
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

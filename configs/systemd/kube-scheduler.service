@@ -1,0 +1,52 @@
+# =============================================================================
+# kube-scheduler systemd unit file
+# =============================================================================
+# Manages the Kubernetes Scheduler as a systemd service.
+#
+# The scheduler watches for newly created Pods with no assigned node and
+# selects the best node for them to run on. The scheduling decision considers:
+#   - Filtering phase: eliminates nodes that don't meet Pod requirements
+#     (resource requests, node selectors, taints/tolerations, affinity rules)
+#   - Scoring phase: ranks remaining nodes by preference criteria
+#     (resource balance, pod spreading, node affinity weights)
+#
+# Certificate paths:
+#   /var/lib/kubernetes/kubeconfig-scheduler.yaml  - Kubeconfig for API auth
+#   /etc/kubernetes/pki/ca.pem                     - Cluster CA (referenced in kubeconfig)
+#
+# Placeholder variables:
+#   None required - the scheduler connects to the API server via kubeconfig
+#   and binds to 0.0.0.0 for health checks.
+#
+# Installation:
+#   1. Ensure kubeconfig-scheduler.yaml is in /var/lib/kubernetes/
+#   2. Copy to /etc/systemd/system/kube-scheduler.service
+#   3. Run: sudo systemctl daemon-reload
+#   4. Run: sudo systemctl enable --now kube-scheduler
+#
+# Requirements: 6.2
+# =============================================================================
+
+[Unit]
+Description=Kubernetes Scheduler
+Documentation=https://kubernetes.io/docs/reference/command-line-tools-reference/kube-scheduler/
+After=network.target
+After=kube-apiserver.service
+Requires=kube-apiserver.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kube-scheduler \
+  --authentication-kubeconfig=/var/lib/kubernetes/kubeconfig-scheduler.yaml \
+  --authorization-kubeconfig=/var/lib/kubernetes/kubeconfig-scheduler.yaml \
+  --bind-address=0.0.0.0 \
+  --kubeconfig=/var/lib/kubernetes/kubeconfig-scheduler.yaml \
+  --leader-elect=true \
+  --v=2
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

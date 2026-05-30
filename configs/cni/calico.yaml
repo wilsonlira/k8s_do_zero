@@ -1,0 +1,493 @@
+# =============================================================================
+# Calico CNI Plugin - Kubernetes Network Manifest
+# =============================================================================
+# This manifest deploys Calico as the CNI (Container Network Interface) plugin
+# for the Kubernetes cluster. Calico provides:
+#   - Pod-to-pod networking across nodes
+#   - IP address management (IPAM) from the configured pod CIDR
+#   - Network policy enforcement for pod-level firewall rules
+#   - BGP-based routing (no overlay by default, better performance)
+#
+# Why Calico over Flannel:
+#   - Network Policy support (Flannel does not support NetworkPolicy)
+#   - Better performance with native routing (no VXLAN overhead)
+#   - More mature and feature-rich for production environments
+#   - Supports both overlay (VXLAN/IPIP) and routed (BGP) modes
+#
+# Networking model:
+#   - Default: IP-in-IP encapsulation (CrossSubnet mode)
+#   - Each node gets a /24 subnet from the pod CIDR (10.244.0.0/16)
+#   - Calico assigns IPs to pods from the node's allocated subnet
+#
+# Configuration:
+#   - POD_CIDR: 10.244.0.0/16 (must match kube-controller-manager --cluster-cidr)
+#   - CALICO_IPV4POOL_CIDR: 10.244.0.0/16
+#   - CALICO_IPV4POOL_IPIP: CrossSubnet (use IPIP only across subnets)
+#
+# Installation:
+#   kubectl apply -f calico.yaml
+#
+# Verification:
+#   kubectl get pods -n kube-system -l k8s-app=calico-node
+#   kubectl get pods -n kube-system -l k8s-app=calico-kube-controllers
+#
+# Requirements: 9.3
+# =============================================================================
+---
+# =============================================================================
+# Namespace: kube-system (Calico components run in kube-system)
+# =============================================================================
+
+# =============================================================================
+# ConfigMap: calico-config
+# =============================================================================
+# Stores Calico configuration parameters used by calico-node DaemonSet.
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: calico-config
+  namespace: kube-system
+data:
+  # Calico backend: bird (BGP), vxlan, or none
+  # "bird" enables BGP routing for optimal performance
+  calico_backend: "bird"
+
+  # CNI network configuration template
+  # This is written to /etc/cni/net.d/ on each node
+  cni_network_config: |-
+    {
+      "name": "k8s-pod-network",
+      "cniVersion": "0.3.1",
+      "plugins": [
+        {
+          "type": "calico",
+          "log_level": "info",
+          "log_file_path": "/var/log/calico/cni/cni.log",
+          "datastore_type": "kubernetes",
+          "nodename": "__KUBERNETES_NODE_NAME__",
+          "mtu": __CNI_MTU__,
+          "ipam": {
+            "type": "calico-ipam"
+          },
+          "policy": {
+            "type": "k8s"
+          },
+          "kubernetes": {
+            "kubeconfig": "__KUBECONFIG_FILEPATH__"
+          }
+        },
+        {
+          "type": "portmap",
+          "snat": true,
+          "capabilities": {"portMappings": true}
+        },
+        {
+          "type": "bandwidth",
+          "capabilities": {"bandwidth": true}
+        }
+      ]
+    }
+
+---
+# =============================================================================
+# ServiceAccount: calico-node
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: calico-node
+  namespace: kube-system
+
+---
+# =============================================================================
+# ServiceAccount: calico-kube-controllers
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: calico-kube-controllers
+  namespace: kube-system
+
+---
+# =============================================================================
+# ClusterRole: calico-node
+# =============================================================================
+# Permissions required by calico-node to manage networking on each node.
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: calico-node
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["endpoints", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["nodes/status"]
+    verbs: ["patch", "update"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["crd.projectcalico.org"]
+    resources:
+      - globalfelixconfigs
+      - felixconfigurations
+      - bgppeers
+      - globalbgpconfigs
+      - bgpconfigurations
+      - ippools
+      - ipamblocks
+      - globalnetworkpolicies
+      - globalnetworksets
+      - networkpolicies
+      - networksets
+      - clusterinformations
+      - hostendpoints
+      - blockaffinities
+      - ipamhandles
+      - ipamconfigs
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+
+---
+# =============================================================================
+# ClusterRoleBinding: calico-node
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: calico-node
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: calico-node
+subjects:
+  - kind: ServiceAccount
+    name: calico-node
+    namespace: kube-system
+
+---
+# =============================================================================
+# ClusterRole: calico-kube-controllers
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: calico-kube-controllers
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods", "namespaces", "serviceaccounts"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["crd.projectcalico.org"]
+    resources:
+      - globalfelixconfigs
+      - felixconfigurations
+      - bgppeers
+      - globalbgpconfigs
+      - bgpconfigurations
+      - ippools
+      - ipamblocks
+      - globalnetworkpolicies
+      - globalnetworksets
+      - networkpolicies
+      - networksets
+      - clusterinformations
+      - hostendpoints
+      - blockaffinities
+      - ipamhandles
+      - ipamconfigs
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+
+---
+# =============================================================================
+# ClusterRoleBinding: calico-kube-controllers
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: calico-kube-controllers
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: calico-kube-controllers
+subjects:
+  - kind: ServiceAccount
+    name: calico-kube-controllers
+    namespace: kube-system
+
+---
+# =============================================================================
+# DaemonSet: calico-node
+# =============================================================================
+# Runs on every node in the cluster. Responsible for:
+#   - Programming routes and network rules for pod networking
+#   - Assigning IP addresses to pods via Calico IPAM
+#   - Enforcing NetworkPolicy rules
+#   - Running the BIRD BGP daemon for route distribution
+# =============================================================================
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: calico-node
+  namespace: kube-system
+  labels:
+    k8s-app: calico-node
+spec:
+  selector:
+    matchLabels:
+      k8s-app: calico-node
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        k8s-app: calico-node
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      hostNetwork: true
+      tolerations:
+        # Allow calico-node to run on all nodes including control plane
+        - effect: NoSchedule
+          operator: Exists
+        - effect: NoExecute
+          operator: Exists
+      serviceAccountName: calico-node
+      # Minimize downtime during a node restart
+      terminationGracePeriodSeconds: 0
+      priorityClassName: system-node-critical
+      initContainers:
+        # Install CNI plugin binaries and config on the host
+        - name: install-cni
+          image: docker.io/calico/cni:v3.27.0
+          command: ["/opt/cni/bin/install"]
+          envFrom:
+            - configMapRef:
+                name: calico-config
+          env:
+            - name: CNI_CONF_NAME
+              value: "10-calico.conflist"
+            - name: CNI_NETWORK_CONFIG
+              valueFrom:
+                configMapKeyRef:
+                  name: calico-config
+                  key: cni_network_config
+            - name: KUBERNETES_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: CNI_MTU
+              value: "1440"
+            - name: SLEEP
+              value: "false"
+          volumeMounts:
+            - mountPath: /host/opt/cni/bin
+              name: cni-bin-dir
+            - mountPath: /host/etc/cni/net.d
+              name: cni-net-dir
+          securityContext:
+            privileged: true
+      containers:
+        - name: calico-node
+          image: docker.io/calico/node:v3.27.0
+          envFrom:
+            - configMapRef:
+                name: calico-config
+          env:
+            # Use Kubernetes datastore (not etcd directly)
+            - name: DATASTORE_TYPE
+              value: "kubernetes"
+            # Wait for the datastore to be ready
+            - name: WAIT_FOR_DATASTORE
+              value: "true"
+            # Set the node name from Kubernetes
+            - name: NODENAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # IP autodetection method
+            - name: IP_AUTODETECTION_METHOD
+              value: "first-found"
+            # Enable IPIP encapsulation (CrossSubnet = only across subnets)
+            - name: CALICO_IPV4POOL_IPIP
+              value: "CrossSubnet"
+            # Disable VXLAN (using IPIP instead)
+            - name: CALICO_IPV4POOL_VXLAN
+              value: "Never"
+            # Pod CIDR - must match kube-controller-manager --cluster-cidr
+            - name: CALICO_IPV4POOL_CIDR
+              value: "10.244.0.0/16"
+            # Enable BGP networking
+            - name: CALICO_NETWORKING_BACKEND
+              value: "bird"
+            # Cluster type identifier
+            - name: CLUSTER_TYPE
+              value: "k8s,bgp"
+            # Disable IPv6
+            - name: IP6
+              value: "none"
+            # Felix (Calico's policy engine) configuration
+            - name: FELIX_IPINIPMTU
+              value: "1440"
+            - name: FELIX_DEFAULTENDPOINTTOHOSTACTION
+              value: "ACCEPT"
+            - name: FELIX_HEALTHENABLED
+              value: "true"
+            - name: FELIX_LOGSEVERITYSCREEN
+              value: "info"
+          securityContext:
+            privileged: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          livenessProbe:
+            exec:
+              command:
+                - /bin/calico-node
+                - -felix-live
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - /bin/calico-node
+                - -felix-ready
+            periodSeconds: 10
+          volumeMounts:
+            - mountPath: /var/run/calico
+              name: var-run-calico
+              readOnly: false
+            - mountPath: /lib/modules
+              name: lib-modules
+              readOnly: true
+            - mountPath: /run/xtables.lock
+              name: xtables-lock
+              readOnly: false
+            - mountPath: /var/lib/calico
+              name: var-lib-calico
+              readOnly: false
+      volumes:
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
+        - name: var-run-calico
+          hostPath:
+            path: /var/run/calico
+        - name: var-lib-calico
+          hostPath:
+            path: /var/lib/calico
+        - name: xtables-lock
+          hostPath:
+            path: /run/xtables.lock
+            type: FileOrCreate
+        - name: cni-bin-dir
+          hostPath:
+            path: /opt/cni/bin
+        - name: cni-net-dir
+          hostPath:
+            path: /etc/cni/net.d
+
+---
+# =============================================================================
+# Deployment: calico-kube-controllers
+# =============================================================================
+# Runs a single replica that watches the Kubernetes API for changes to:
+#   - NetworkPolicy objects → syncs to Calico policy datastore
+#   - Nodes → cleans up IPAM allocations for deleted nodes
+#   - ServiceAccounts → manages Calico profiles
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: calico-kube-controllers
+  namespace: kube-system
+  labels:
+    k8s-app: calico-kube-controllers
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      k8s-app: calico-kube-controllers
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        k8s-app: calico-kube-controllers
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+        - key: node-role.kubernetes.io/control-plane
+          effect: NoSchedule
+      serviceAccountName: calico-kube-controllers
+      priorityClassName: system-cluster-critical
+      containers:
+        - name: calico-kube-controllers
+          image: docker.io/calico/kube-controllers:v3.27.0
+          env:
+            - name: DATASTORE_TYPE
+              value: "kubernetes"
+            - name: ENABLED_CONTROLLERS
+              value: "node,policy,workloadendpoint,serviceaccount"
+          readinessProbe:
+            exec:
+              command:
+                - /usr/bin/check-status
+                - -r
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 30m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+---
+# =============================================================================
+# IPPool: default-ipv4-ippool
+# =============================================================================
+# Defines the IP address range from which Calico assigns IPs to pods.
+# This MUST match the --cluster-cidr flag on kube-controller-manager.
+# =============================================================================
+apiVersion: crd.projectcalico.org/v1
+kind: IPPool
+metadata:
+  name: default-ipv4-ippool
+spec:
+  # Pod CIDR range - matches kube-controller-manager --cluster-cidr
+  cidr: 10.244.0.0/16
+  # IPIP encapsulation mode:
+  #   Always     - Always use IPIP (works across any network)
+  #   CrossSubnet - Use IPIP only when crossing subnet boundaries
+  #   Never      - Disable IPIP (requires L2 adjacency or BGP peering)
+  ipipMode: CrossSubnet
+  # VXLAN encapsulation mode (disabled, using IPIP)
+  vxlanMode: Never
+  # NAT outgoing traffic from pods to external destinations
+  natOutgoing: true
+  # Enable this pool for IPAM allocation
+  disabled: false
+  # Block size: each node gets a /26 (64 IPs) from this pool
+  blockSize: 26
+  # Node selector: allocate from this pool on all nodes
+  nodeSelector: all()

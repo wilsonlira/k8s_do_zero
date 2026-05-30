@@ -1,0 +1,66 @@
+# =============================================================================
+# kubelet systemd unit file
+# =============================================================================
+# Manages the kubelet as a systemd service on each Worker Node.
+#
+# The kubelet is the primary node agent that runs on every node in the cluster.
+# It is responsible for:
+#   - Registering the node with the Kubernetes API server
+#   - Watching the API server for pod assignments to this node
+#   - Managing pod lifecycle (create, start, stop, delete containers)
+#   - Reporting node status and resource usage to the control plane
+#   - Performing container health checks (liveness, readiness, startup probes)
+#   - Managing volumes and secrets for pods
+#
+# Certificate paths:
+#   /etc/kubernetes/pki/ca.pem                 - Cluster CA certificate
+#   /etc/kubernetes/pki/kubelet.pem            - Kubelet server certificate
+#   /etc/kubernetes/pki/kubelet-key.pem        - Kubelet server private key
+#   /var/lib/kubernetes/kubeconfig-kubelet.yaml - Kubeconfig for API server auth
+#
+# Placeholder variables:
+#   ${HOSTNAME} - The hostname of the worker node (e.g., k8s-worker-01).
+#                 Obtain with: hostname -s
+#
+# Key configuration flags:
+#   --container-runtime-endpoint  - CRI socket path for containerd
+#   --kubeconfig                  - Path to kubeconfig for API server auth
+#   --cluster-dns                 - ClusterIP of the kube-dns Service (CoreDNS)
+#   --cluster-domain              - DNS domain for the cluster
+#   --pod-cidr                    - CIDR range for pod IP allocation on this node
+#   --tls-cert-file / --tls-private-key-file - Kubelet serving certificate
+#   --register-node               - Auto-register this node with the API server
+#   --hostname-override           - Override the node hostname reported to API
+#
+# Installation:
+#   1. Replace ${HOSTNAME} with the actual worker node hostname
+#   2. Copy to /etc/systemd/system/kubelet.service
+#   3. Run: sudo systemctl daemon-reload
+#   4. Run: sudo systemctl enable --now kubelet
+#
+# Requirements: 7.2
+# =============================================================================
+
+[Unit]
+Description=Kubernetes Kubelet
+Documentation=https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet/
+After=network.target
+After=containerd.service
+Requires=containerd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kubelet \
+  --config=/var/lib/kubelet/kubelet-config.yaml \
+  --container-runtime-endpoint=unix:///var/run/containerd/containerd.sock \
+  --kubeconfig=/var/lib/kubernetes/kubeconfig-kubelet.yaml \
+  --hostname-override=${HOSTNAME} \
+  --register-node=true \
+  --v=2
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

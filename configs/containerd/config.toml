@@ -1,0 +1,138 @@
+# =============================================================================
+# containerd configuration file
+# =============================================================================
+# This is the main configuration file for containerd, the container runtime
+# used by Kubernetes in this lab.
+#
+# Key settings for Kubernetes compatibility:
+#   - SystemdCgroup = true: Uses systemd as the cgroup driver, which is
+#     required for Kubernetes 1.22+ to ensure kubelet and containerd use
+#     the same cgroup driver (avoids resource tracking inconsistencies).
+#   - sandbox_image: Specifies the "pause" container image used as the
+#     infrastructure container for each pod (holds the network namespace).
+#
+# This configuration is generated from the default containerd config and
+# modified for Kubernetes CRI (Container Runtime Interface) compatibility.
+#
+# Installation:
+#   1. Copy to /etc/containerd/config.toml
+#   2. Run: sudo systemctl restart containerd
+#   3. Verify: sudo systemctl status containerd
+#
+# Requirements: 2.4
+# =============================================================================
+
+# containerd version and root configuration
+version = 2
+
+# Root directory for containerd metadata and state
+root = "/var/lib/containerd"
+
+# State directory for runtime state (sockets, pids, etc.)
+state = "/run/containerd"
+
+# Temp directory (empty = system default)
+temp = ""
+
+# =============================================================================
+# [grpc] - gRPC server configuration
+# =============================================================================
+# Configures the gRPC server that exposes the containerd API.
+# The CRI plugin communicates with containerd via this socket.
+# =============================================================================
+[grpc]
+  # Unix socket path where containerd listens for API requests.
+  # The kubelet connects to this socket via the CRI interface.
+  address = "/run/containerd/containerd.sock"
+  # TCP address (empty = disabled, only unix socket is used)
+  tcp_address = ""
+  # Maximum receive message size in bytes (0 = default 16MB)
+  max_recv_message_size = 16777216
+  # Maximum send message size in bytes (0 = default 16MB)
+  max_send_message_size = 16777216
+
+# =============================================================================
+# [plugins] - Plugin configuration
+# =============================================================================
+# containerd uses a plugin architecture. The most important plugin for
+# Kubernetes is "io.containerd.grpc.v1.cri" which implements the CRI
+# (Container Runtime Interface) specification.
+# =============================================================================
+
+# =============================================================================
+# [plugins."io.containerd.grpc.v1.cri"] - CRI Plugin Configuration
+# =============================================================================
+# The CRI plugin is the bridge between Kubernetes (kubelet) and containerd.
+# It translates CRI API calls (RunPodSandbox, CreateContainer, StartContainer,
+# etc.) into containerd operations.
+# =============================================================================
+[plugins."io.containerd.grpc.v1.cri"]
+  # The "pause" container image used as the pod sandbox (infrastructure container).
+  # This container holds the network namespace for the pod. All containers in
+  # a pod share this network namespace.
+  # Using the registry.k8s.io official image matching the Kubernetes version.
+  sandbox_image = "registry.k8s.io/pause:3.9"
+
+  # Disable the deprecated CRI v1alpha2 API
+  disable_tcp_service = true
+
+  # =============================================================================
+  # [plugins."io.containerd.grpc.v1.cri".containerd] - Container runtime settings
+  # =============================================================================
+  [plugins."io.containerd.grpc.v1.cri".containerd]
+    # Default runtime to use when no runtime is specified
+    default_runtime_name = "runc"
+
+    # Disable snapshot annotations (not needed for basic setup)
+    disable_snapshot_annotations = true
+
+    # =========================================================================
+    # [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+    # =========================================================================
+    # Configuration for the runc OCI runtime. runc is the reference
+    # implementation of the OCI (Open Container Initiative) runtime spec.
+    # =========================================================================
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+      # Runtime type: io.containerd.runc.v2 is the recommended shim for runc
+      runtime_type = "io.containerd.runc.v2"
+
+      # =========================================================================
+      # [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+      # =========================================================================
+      # Runtime-specific options for runc.
+      # =========================================================================
+      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+        # CRITICAL: SystemdCgroup must be true for Kubernetes compatibility.
+        #
+        # This tells runc to use systemd as the cgroup driver instead of the
+        # default cgroupfs driver. Kubernetes 1.22+ requires that the kubelet
+        # and the container runtime use the same cgroup driver.
+        #
+        # If this is set to false (or omitted), you will see errors like:
+        #   "failed to create pod sandbox: rpc error: code = Unknown
+        #    desc = failed to create containerd task"
+        #
+        # The kubelet is configured with --cgroup-driver=systemd by default
+        # on systemd-based systems (Ubuntu 22.04), so containerd must match.
+        SystemdCgroup = true
+
+  # =============================================================================
+  # [plugins."io.containerd.grpc.v1.cri".cni] - CNI Plugin Configuration
+  # =============================================================================
+  # Configures how containerd interacts with CNI (Container Network Interface)
+  # plugins for pod networking.
+  # =============================================================================
+  [plugins."io.containerd.grpc.v1.cri".cni]
+    # Directory containing CNI plugin binaries (bridge, loopback, calico, etc.)
+    bin_dir = "/opt/cni/bin"
+    # Directory containing CNI configuration files (*.conflist)
+    conf_dir = "/etc/cni/net.d"
+
+  # =============================================================================
+  # [plugins."io.containerd.grpc.v1.cri".registry] - Registry Configuration
+  # =============================================================================
+  # Configures container image registry settings.
+  # =============================================================================
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    # Use the default registry configuration path
+    config_path = "/etc/containerd/certs.d"

@@ -1,0 +1,58 @@
+# =============================================================================
+# kube-proxy systemd unit file
+# =============================================================================
+# Manages kube-proxy as a systemd service on each Worker Node.
+#
+# kube-proxy is responsible for maintaining network rules on nodes that allow
+# network communication to Pods from inside or outside the cluster. It:
+#   - Watches the API server for Service and Endpoint object changes
+#   - Translates Service definitions into node-level network rules (iptables/IPVS)
+#   - Enables ClusterIP, NodePort, and LoadBalancer service types
+#   - Performs connection tracking and load balancing across pod backends
+#
+# Certificate paths:
+#   /etc/kubernetes/pki/ca.pem                    - Cluster CA certificate
+#   /var/lib/kubernetes/kubeconfig-kube-proxy.yaml - Kubeconfig for API server auth
+#
+# Key configuration flags:
+#   --config                - Path to the kube-proxy configuration file
+#   --kubeconfig            - Path to kubeconfig for API server authentication
+#   --proxy-mode            - Proxy mode: iptables (default) or ipvs
+#   --cluster-cidr          - CIDR range for pods in the cluster
+#   --hostname-override     - Override the node hostname
+#
+# Proxy modes:
+#   - iptables: Default mode. Uses iptables rules for packet forwarding.
+#               Simple, reliable, suitable for clusters with < 1000 services.
+#   - ipvs:     Uses IPVS (IP Virtual Server) for load balancing.
+#               Better performance at scale, supports more load balancing
+#               algorithms (rr, lc, dh, sh, sed, nq).
+#
+# Installation:
+#   1. Copy to /etc/systemd/system/kube-proxy.service
+#   2. Run: sudo systemctl daemon-reload
+#   3. Run: sudo systemctl enable --now kube-proxy
+#
+# Requirements: 8.2
+# =============================================================================
+
+[Unit]
+Description=Kubernetes Kube-Proxy
+Documentation=https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kube-proxy \
+  --kubeconfig=/var/lib/kubernetes/kubeconfig-kube-proxy.yaml \
+  --proxy-mode=iptables \
+  --cluster-cidr=10.244.0.0/16 \
+  --conntrack-max-per-core=0 \
+  --v=2
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

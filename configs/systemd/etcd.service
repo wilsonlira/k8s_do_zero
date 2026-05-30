@@ -1,0 +1,57 @@
+# =============================================================================
+# etcd systemd unit file
+# =============================================================================
+# Manages etcd as a systemd service on the Control Plane node.
+#
+# Certificate paths:
+#   /etc/etcd/pki/etcd-server.pem      - etcd server certificate
+#   /etc/etcd/pki/etcd-server-key.pem  - etcd server private key
+#   /etc/etcd/pki/ca.pem               - Certificate Authority
+#
+# Placeholder variables:
+#   ${INTERNAL_IP} - The private/internal IP of the control plane node.
+#                    Obtain with: hostname -I | awk '{print $1}'
+#
+# Installation:
+#   1. Replace ${INTERNAL_IP} with the actual node IP
+#   2. Copy to /etc/systemd/system/etcd.service
+#   3. Run: sudo systemctl daemon-reload
+#   4. Run: sudo systemctl enable --now etcd
+#
+# Requirements: 3.2
+# =============================================================================
+
+[Unit]
+Description=etcd
+Documentation=https://github.com/etcd-io/etcd
+After=network.target
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/etcd \
+  --name=etcd-server \
+  --data-dir=/var/lib/etcd \
+  --listen-client-urls=https://${INTERNAL_IP}:2379,https://127.0.0.1:2379 \
+  --advertise-client-urls=https://${INTERNAL_IP}:2379 \
+  --listen-peer-urls=https://${INTERNAL_IP}:2380 \
+  --initial-advertise-peer-urls=https://${INTERNAL_IP}:2380 \
+  --initial-cluster=etcd-server=https://${INTERNAL_IP}:2380 \
+  --initial-cluster-token=etcd-cluster-lab \
+  --initial-cluster-state=new \
+  --cert-file=/etc/etcd/pki/etcd-server.pem \
+  --key-file=/etc/etcd/pki/etcd-server-key.pem \
+  --trusted-ca-file=/etc/etcd/pki/ca.pem \
+  --client-cert-auth=true \
+  --peer-cert-file=/etc/etcd/pki/etcd-server.pem \
+  --peer-key-file=/etc/etcd/pki/etcd-server-key.pem \
+  --peer-trusted-ca-file=/etc/etcd/pki/ca.pem \
+  --peer-client-cert-auth=true
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
