@@ -149,10 +149,20 @@ Conecte-se ao nó onde deseja instalar o containerd. Repita todo o processo para
 
 ```bash
 # Conectar ao control plane
-ssh -i ~/.ssh/k8s-lab-key.pem ubuntu@${CONTROL_PLANE_PUBLIC_IP}
+ssh -i keys/k8s-lab-key.pem ubuntu@${CONTROL_PLANE_PUBLIC_IP}
 
 # OU conectar ao worker node
-ssh -i ~/.ssh/k8s-lab-key.pem ubuntu@${WORKER_NODE_PUBLIC_IP}
+ssh -i keys/k8s-lab-key.pem ubuntu@${WORKER_NODE_PUBLIC_IP}
+```
+
+Caso tenha perdido as variaveis de IP, resgate atraves da console aws ou usando o comando abaixo:
+
+```bash
+❯ aws ec2 describe-instances --profile k8s-lab\
+    --instance-ids "i-xxxxxxxx" \
+    --region "us-east-1" \
+    --query 'Reservations[0].Instances[0].[PublicIpAddress,PrivateIpAddress]' \
+    --output text
 ```
 
 **Saída esperada:**
@@ -436,7 +446,7 @@ Configure a imagem do pause container para a versão compatível com Kubernetes 
 
 ```bash
 # Configurar sandbox image
-sudo sed -i 's|sandbox_image = "registry.k8s.io/pause:.*"|sandbox_image = "registry.k8s.io/pause:3.9"|g' /etc/containerd/config.toml
+sudo sed -i 's|sandbox = "registry.k8s.io/pause:.*"|sandbox = "registry.k8s.io/pause:3.10.1"|g' /etc/containerd/config.toml
 ```
 
 **Saída esperada:** Nenhuma saída indica sucesso.
@@ -471,7 +481,7 @@ grep "sandbox_image" /etc/containerd/config.toml
 
 **Saída esperada:**
 ```
-    sandbox_image = "registry.k8s.io/pause:3.9"
+    sandbox_image = "registry.k8s.io/pause:3.10.1"
 ```
 
 ### 6. Reiniciar e Habilitar o Serviço containerd
@@ -546,7 +556,7 @@ srw-rw---- 1 root root 0 Jan  1 00:00 /run/containerd/containerd.sock
 
 ### Verificação 3: Versão do containerd
 
-Confirme que a versão instalada é a esperada (1.7.13):
+Confirme que a versão instalada é a esperada (2.2.5):
 
 ```bash
 # Verificar versão
