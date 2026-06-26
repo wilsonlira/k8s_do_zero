@@ -565,10 +565,10 @@ containerd --version
 
 **Saída esperada:**
 ```
-containerd containerd.io 1.7.13 ...
+containerd containerd.io 2.2.5 ...
 ```
 
-**Linha-chave:** A versão deve ser `1.7.13`.
+**Linha-chave:** A versão deve ser `2.2.5`.
 
 ### Verificação 4: Pull de imagem de teste
 
